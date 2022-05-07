@@ -2,48 +2,67 @@
  
 void loop()
 {
-/******************************************************************************
- * The main loop is very simple:
- *  Sample a power channel.
- *  Yield to the OS and Wifi Server.
- *  Run next dispatchable service if there is one
- *  Yield to the OS and Wifi Server.
- *  Go back, Jack, and do it again.
- ******************************************************************************/
+  static int lastChannel = 0;
+
+  /******************************************************************************
+   * The main loop is very simple:
+   * 
+   *  Set the LED state.
+   *  Sample a channel.
+   *  Run the Wifi Server.
+   *  Check for and update a new config
+   *  Run next dispatchable service if there is one
+   * 
+   ******************************************************************************/
 
   setLedState();
 
-  // ------- If AC zero crossing approaching, go sample a channel.
-  static int lastChannel = 0;
-  uint32_t microsNow = micros();
-  if(microsNow <= lastCrossMs){
+  // Check for rollover of micros() clock and if so reset bingo time as well.
+
+  if(micros() <= lastCrossUs){
     bingoTime = 0;
   }
-  if(maxInputs && microsNow > bingoTime){
+
+  // If there are Inputs and next crossing is close ("bingo time"),
+  // sample a cycle. 
+
+  if(maxInputs && micros() > bingoTime){
+
+    // Determine next channel to sample.
+
     trace(T_LOOP,1,lastChannel);
     int nextChannel = (lastChannel + 1) % maxInputs;
     while( (! inputChannel[nextChannel]->isActive()) && nextChannel != lastChannel){
       nextChannel = ++nextChannel % maxInputs;
     }
-    ESP.wdtFeed();
     trace(T_LOOP,2,nextChannel);
+
+    // Sample it.
+
+    ESP.wdtFeed();
     samplePower(nextChannel, 0);
-    trace(T_LOOP,2);
-    nextCrossMs = lastCrossMs + 490 / int(frequency);
+    ESP.wdtFeed();
+
+    // Set "bingo" time to micros when Services should return control in order to catch next AC cycle.
+
     if(int(frequency) > 25){
       bingoTime = lastCrossUs + 500000 / int(frequency) - 2000;
     }
     else {
-      bingoTime = lastCrossUs + 3500;
+      bingoTime = lastCrossUs + 6333;
     }
-    //bingoTime = lastCrossUs + ((lastCrossUs - firstCrossUs) / 2) - 1500;
-    if(nextChannel <= lastChannel) sampling = true;
+    
+    // Indicate sampling active after one pass through inputs 
+
+    if(nextChannel <= lastChannel){
+      sampling = true;
+    }
     lastChannel = nextChannel;
   }
 
-  // --------- Give web server a shout out.
-  //           serverAvailable will be false if there is a request being serviced by
-  //           an Iota SERVICE. (GetFeedData)
+  // Give web server a shout out.
+  // serverAvailable will be false if there is a request being serviced by
+  // an Iota SERVICE.
 
   yield();
   ESP.wdtFeed();
@@ -66,15 +85,17 @@ void loop()
       copyFile("/esp_spiffs/config.txt", "config.txt");
     }
     else {
-
+      log("Config update failed.");
     }
   }
 
-// ---------- If the head of the service queue is dispatchable
-//            call the SERVICE.
+// If the head of the service queue is dispatchable
+// Find the highest priority Service that is dispatchable.
+// Remove it from the serviceQueue
+// call it
+// Reschedule it.
 
-  microsNow = micros();
-  if(microsNow < bingoTime && serviceQueue != NULL && millis() >= serviceQueue->scheduleTime){
+  if(micros() < bingoTime && serviceQueue != NULL && millis() >= serviceQueue->scheduleTime){
     trace(T_LOOP,6,1);
     serviceBlock *selPtr = (serviceBlock*)&serviceQueue;
     serviceBlock *tstPtr = selPtr->next;
@@ -115,30 +136,38 @@ void loop()
  * The main loop steps through and samples the channels at the millisecond level.  It invokes samplePower()
  * which samples one or more waves and updates the corresponding data buckets.  After each sample, there 
  * are a few milliseconds before the next AC zero crossing, so we try to do everything else during that
- * downtime.
+ * interval. Bingo time is set as the micros() time when sampling should be resumed.
  * 
- * To accomplish that, other activities are organized as SERVICEs that are scheduled and are dispatched in 
- * Loop during the half-cycle downtime. The ESP8266 is already running a lower level operating system that 
- * is task oriented and dispatches this program along with other tasks - most notably the WiFi stack. Ticker
- * taps into that and provides one time or periodic interrupts that could be used to run services, but we
- * run the channel sampling with interrupts disabled, and we really don't need sub-second scheduling for 
- * our services anyway, so Ticker is not used.
+ * The WiFi server is invoked each time through the loop to check for work.
  * 
- * This mechanism schedules at a resolution of one second, and dispatches during the optimal time period
- * between AC cycles.  To avoid context and synchonization issues, each service is coded as a state-machine.
- * They must be well behaved and should try to run for less than a few milliseconds. Although that isn't
- * always possible and doesn't do any real harm if they run over - just reduces the sampling frequency a bit.
+ * Other activities are organized as Services that are scheduled and dispatched in Loop during the half-cycle
+ * downtime. This mechanism schedules at a resolution of one millisecond, and dispatches during the optimal 
+ * time period between AC cycles.  To preserve context and synchonization, each Service is coded as a 
+ * state-machine. They must be well behaved and should try to run for less than a few milliseconds and/or
+ * relinquish at Bingo time. That isn't always possible and doesn't do any real harm if they run over
+ * occasionally as it just reduces the sampling frequency a bit.
  * 
- * Services return the UNIXtime of the next requested dispatch.  If the requested time is in the past, 
- * the service is requeued at the current time, so if a service just wants to relinquish but reschedule 
- * for the next available opportunity, just return 1.  If a service returns zero, it's service block will
- * be deleted.  To reschedule, AddService would have to be called to create a new serviceBlock.
+ * Services return a value that is used to set their reschedule time as follows:
+ * 0 - Do not reschedule, deallocate the Service Block.
+ * 1 - Set to redispatch immediately.
+ * 2-1000 value is milliseconds to delay before redispatch.
+ * > 1000 value is UNIXtime of requested redispatch.
+ * So if a service just wants to relinquish in deference to sampling but is not finished with its
+ * business, just reeturn 1 to be redispatched at the next available opportunity.
  * 
- * The schedule itself is kept as an ordered list of control blocks in ascending order of time + priority.
- * Loop simply invokes the service currently at the beginning of the list.
+ * The schedule itself is kept as an ordered list of control blocks in ascending order of time + priority
+ * called serviceQueue. Loop invokes the service with the highest priority that is dispatchable.
  * 
- * The WiFi server is not one of these services.  It is invoked each time through the loop because it
- * polls for activity.
+ * The following two functions are used to maintain the serviceQueue.
+ * 
+ * NewService creates a new serviceBlock that is immediately dispatchable. This is used to create an
+ * instance of a Service and is mostly used at startup.  Ad-hoc Services can be created as well at any
+ * time and they can terminate by simply returning zero.
+ * 
+ * AddService is the workhorse.  It inserts a serviceBlock into the serviceQueue in the appropriate
+ * order based on its scheduleTime and priority.  When Services are dispatched, they are removed 
+ * from the serviceQueue and then reinserted into the serviceQueue upon return using AddService.
+ * 
  ********************************************************************************************************/
 
 serviceBlock* NewService(Service serviceFunction, const uint8_t taskID, void* parm){

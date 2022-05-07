@@ -32,13 +32,6 @@
 #include <EEPROM.h>
 #include <ESP8266WiFi.h>
 #include <WiFiManager.h>
-#ifdef CORE_3_0
-      #include "ESP8266mDNS.h"
-#else
-      #include "ESP8266mDNS_Legacy.h"
-#endif
-#include <ESP8266LLMNR.h>
-#include <DNSServer.h> 
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESPAsyncTCP.h>
@@ -83,11 +76,6 @@
 extern WiFiClient WifiClient;
 extern WiFiManager wifiManager;
 extern ESP8266WebServer server;
-extern DNSServer DNS_server;
-#ifndef CORE_3_0
-   using MDNSResponder = Legacy_MDNSResponder::MDNSResponder;   
-#endif
-extern MDNSResponder MDNS;
 extern IotaLog Current_log;
 extern IotaLog History_log;
 extern IotaLog *Export_log;
@@ -225,8 +213,6 @@ struct EEprom {
 #define ADC_BITS 12
 #define ADC_RANGE 4096      // 2^12
 
-extern uint32_t lastCrossMs;           // Timestamp at last zero crossing (ms) (set in samplePower)
-extern uint32_t nextCrossMs;           // Time just before next zero crossing (ms) (computed in Loop)
 extern uint32_t firstCrossUs;          // Time cycle at usec resolution for phase calculation
 extern uint32_t lastCrossUs;
 extern uint32_t bingoTime;

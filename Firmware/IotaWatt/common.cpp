@@ -125,8 +125,6 @@
       // Define instances of major classes to be used
 
 WiFiClient WifiClient;
-DNSServer DNS_server;
-MDNSResponder MDNS;    
 IotaLog Current_log(256,5,365,32);              // current data log  (1 year) 
 IotaLog History_log(256,60,3652,48);            // history data log  (10 years)
 IotaLog *Export_log = nullptr;                  // Optional export log    
@@ -155,8 +153,6 @@ traceUnion traceEntry;
        * We try to run everything else during the half-wave intervals between power sampling.  
        **************************************************************************************************/
        
-uint32_t lastCrossMs = 0;                 // Timestamp at last zero crossing (ms) (set in samplePower)
-uint32_t nextCrossMs = 0;                 // Time just before next zero crossing (ms) (computed in Loop)
 uint32_t firstCrossUs = 0;                // Time cycle at usec resolution for phase calculation
 uint32_t lastCrossUs = 0;
 uint32_t bingoTime = 0;                   // When just enough fuel to get to the next crossing      
