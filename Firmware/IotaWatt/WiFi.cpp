@@ -29,10 +29,14 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
       WiFi.hostname(deviceName);
       log("WiFi connected. SSID=%s, IP=%s, channel=%d, RSSI %ddb", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), WiFi.channel(), WiFi.RSSI());
     }
-    if( !MDNS.isRunning()){
+    if( ! mDNSstarted){
       if (MDNS.begin(deviceName)) {
         MDNS.addService("http", "tcp", 80);
+        mDNSstarted = true;
       }
+    }
+    else {
+      MDNS.update();
     }
     if( ! LLMNRstarted){
       if (LLMNR.begin(deviceName)){
@@ -46,7 +50,6 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
       trace(T_WiFi,2);
       wifiConnectTime = 0;
       lastDisconnect = UTCtime();
-      MDNS.close();
       log("WiFi disconnected.");
     }
     else if((UTCtime() - lastDisconnect) >= restartInterval){
@@ -55,7 +58,6 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
       ESP.restart();
     }
   }
-  MDNS.update();
 
     // Check for degraded heap.
 

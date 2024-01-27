@@ -142,7 +142,7 @@ uint32_t PVoutput::tickCheckSystemService(){
     switch (_HTTPresponse) {
         default:{
             log("%s: Unrecognized HTTP completion, getSystemService %.40s", _id, response->peek(40).c_str());
-            delete _statusMessage;
+            delete[] _statusMessage;
             _statusMessage = charstar(F("getservice failed, HTTPcode: "), String(request->responseHTTPcode()).c_str());
             _state = getSystemService;
             return UTCtime() + 60;
@@ -162,7 +162,7 @@ uint32_t PVoutput::tickCheckSystemService(){
         case LOAD_IN_PROGRESS:
         case RATE_LIMIT:
         case HTTP_FAILURE: {
-            delete _statusMessage;
+            delete[] _statusMessage;
             _statusMessage = charstar(F("getservice failed, HTTPcode: "), String(request->responseHTTPcode()).c_str());
             _state = getSystemService;
             return UTCtime() + 1;
@@ -189,11 +189,11 @@ uint32_t PVoutput::tickGotStatus(){
         case LOAD_IN_PROGRESS:
         case RATE_LIMIT:
         case HTTP_FAILURE: {
-            delete _statusMessage;
+            delete[] _statusMessage;
             _statusMessage = charstar(F("getstatus failed, HTTPcode: "), String(request->responseHTTPcode()).c_str());
             _state = getStatus; 
             return UTCtime() + 2;
-        }
+        }   
         case NO_STATUS: {
             trace(T_PVoutput,76);
             _lastPostTime = 0;
@@ -323,6 +323,13 @@ uint32_t PVoutput::tickUploadStatus(){
         oldRecord = nullptr;
         delete newRecord;
         newRecord = nullptr;
+        delete request;
+        request = nullptr;
+        delete response;
+        response = nullptr;
+        delete _POSTrequest;
+        reqData.flush();
+        _POSTrequest = nullptr;
         return UTCtime() + 1;
     }
 
@@ -469,8 +476,9 @@ uint32_t PVoutput::tickCheckUploadStatus(){
             delete[] _statusMessage;
             _statusMessage = charstar(F("Load in progress?"));
             _state = uploadStatus;
-            return UTCtime() + 15; 
-        
+            return UTCtime() + 15;
+
+        case RATE_LIMIT:  
         case HTTP_FAILURE:   
             trace(T_PVoutput,92);
             if(request->responseHTTPcode() == _errorCode){
@@ -512,12 +520,9 @@ const char reqHeaderContentType[] PROGMEM = "Content-type";
     
 void PVoutput::HTTPPost(const __FlashStringHelper *URI, states completionState, const char* contentType){
     trace(T_PVoutput,100);
-    if( ! _POSTrequest){
-        _POSTrequest = new POSTrequest;
-    }
-    delete _POSTrequest->URI;
+    delete _POSTrequest;
+    _POSTrequest = new POSTrequest;
     _POSTrequest->URI = charstar(URI);
-    delete _POSTrequest->contentType;
     if(contentType){
         _POSTrequest->contentType = charstar(contentType);
     } else {
@@ -529,11 +534,6 @@ void PVoutput::HTTPPost(const __FlashStringHelper *URI, states completionState, 
 
 uint32_t PVoutput::handle_HTTPpost_s(){
     trace(T_PVoutput,110);
-    // if(_rateLimitRemaining <= 0  && UTCtime() < _rateLimitReset){
-    //     log("%s: Transaction Rate-Limit exceeded.  Waiting until %s", _id, datef(UTC2Local(_rateLimitReset), "hh:mm").c_str());
-    //     _state = limitWait;
-    //     return 1;
-    // }
     if( ! WiFi.isConnected()){
         return UTCtime() + 1;
     }
@@ -588,8 +588,8 @@ uint32_t PVoutput::handle_HTTPwait_s(){
     }
     HTTPrelease(_HTTPtoken);
     _state = _POSTrequest->completionState;
-    //delete _POSTrequest;
-    //_POSTrequest = nullptr;
+    delete _POSTrequest;
+    _POSTrequest = nullptr;
     trace(T_PVoutput,121);
 
             // Get the flow control headers from PVoutput
@@ -640,6 +640,7 @@ uint32_t PVoutput::handle_HTTPwait_s(){
         log("%s: %s", _id, _statusMessage);
         trace(T_PVoutput,123);
         _HTTPresponse = RATE_LIMIT;
+        _resumeState = _state;
         _state = limitWait;        
         return 1;
     }
@@ -684,11 +685,16 @@ uint32_t PVoutput::tickLimitWait(){
     }
     if(UTCtime() > _rateLimitReset){
         trace(T_PVoutput,131);
-        _state = HTTPpost;
+        delete[] _statusMessage;
+        _statusMessage = nullptr;
+        _state = _resumeState;
         return 1;
     }
     trace(T_PVoutput,130);
-    return UTCtime() + 60;
+
+                // Wait a second.
+
+    return 1000;
 }
 
 //********************************************************************************************************************

@@ -95,6 +95,9 @@ public:
 
     ~PVoutput(){
         delete[] _apiKey;
+        delete[] _systemID;
+        delete[] _statusMessage;
+        delete[] _id;
         delete oldRecord;
         delete newRecord;
         delete _outputs;
@@ -128,10 +131,9 @@ private:
                         limitWait =9,
                         stopped = 10,
                         invalid = 11
-                    } _state;
+                    } _state, _resumeState;
 
-    
-        // State machine handlers corresponding to like named states.
+    // State machine handlers corresponding to like named states.
 
     uint32_t    handle_initialize_s();
     uint32_t    tickGetSystemService();

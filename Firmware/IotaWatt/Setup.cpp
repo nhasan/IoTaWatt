@@ -14,7 +14,7 @@ void setup()
 {
   //*************************************** Start Serial connection (if any)***************************
    
-  Serial.begin(115200);
+  Serial.begin(115200, SERIAL_8N1, SERIAL_TX_ONLY);
   delay(250);
   //Serial.println(F("\r\n\n\n** Restart **\r\n\n"));
   //Serial.println(F("Serial Initialized"));
@@ -43,6 +43,8 @@ void setup()
   if(!SDFS.begin()) {
     log("SD initiatization failed. Retrying.");
     setLedCycle(LED_SD_INIT_FAILURE);
+    SDFSConfig SDconfig(pin_CS_SDcard, SD_SCK_MHZ(8));
+    SDFS.setConfig(SDconfig);
     while(!SDFS.begin()){ 
       yield();
     }
@@ -234,12 +236,6 @@ if(spiffsBegin()){
   if(! validConfig){
     setLedCycle(LED_BAD_CONFIG);
   }
-
-  // uint32_t t = 1630728000UL; 	
-  // for (int i = 0; i < 48; i++){
-  //   Serial.printf("time: %s, power: %0.3f, energy: %0.3f\n", localDateString(t).c_str(), simSolarPower(t), simSolarEnergy(1630728000UL, t));
-  //   t += 7200;
-  // }
 
 }  // setup()
 /***************************************** End of Setup **********************************************/
